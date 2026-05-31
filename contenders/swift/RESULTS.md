@@ -486,7 +486,7 @@ zip: 2200/3000  entries @ 581 s  →  3.79 files/s
 ```
 
 Linear: 3000 entries projected at ~795 s. Same shape as Run 9
-(March 2025, original AWS SDK port) which also reached ~2200/3000 by
+(2026-05-29, original AWS SDK port) which also reached ~2200/3000 by
 600 s timeout. **The optimizations didn't move the AWS SDK port at
 all.**
 
