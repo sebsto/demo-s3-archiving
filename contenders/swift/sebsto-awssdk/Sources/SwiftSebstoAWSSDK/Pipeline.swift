@@ -1,6 +1,6 @@
+import AWSS3
 import Logging
-import NIOCore
-import SotoS3
+import Smithy
 
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -8,28 +8,21 @@ import FoundationEssentials
 import Foundation
 #endif
 
-// Tunables.
+// Tunables — same shape as the Soto baseline (sebsto-soto branch).
 //
-// History:
-//   - Run-5: downloader-bound (1256 s of summed download work vs 4 s
-//     zipper). Per-task GET ~12 MB/s vs Rust's ~35 MB/s.
-//   - Run-7: raised AsyncHTTPClient pool ceiling 8 → 32 (in main.swift).
-//   - Run-6: tried `maxDownloadsMemory` 20 → 40 MiB; OOM'd at 511 MB.
-//   - C1+C2.5: ByteBuffer end-to-end on upload + pre-sized download
-//     buffer; reclaimed RSS to ~417 MB.
-//   - **C3 reverted**: bumping budget to 32 MiB doubled mean in-flight
-//     (1.96 → 4.16) but only saved 2.2 s wall-clock — and Max Memory
-//     Used jumped 417 → 490 MB. Cold-2 OOM-killed. The S3 bandwidth was
-//     already saturated; more concurrency just spreads it thinner
-//     (per-task p50 doubled 376 ms → 626 ms). Net: tiny speed win, big
-//     OOM risk. Reverted to 20 MiB.
+// Inherited from sebsto-soto Run 16:
+//   maxDownloadsMemory = 20 MiB  (32 MiB OOM'd warm runs there too)
+//   maxConcurrentUploads = 3
+//   chunkSize = 10 MiB
+//   bufferChunksCount = 2
+//
+// Whether the same numbers are right for aws-sdk-swift is an empirical
+// question — the underlying network stack is different (CRT vs NIO).
+// We start from the Soto-tuned values and adjust if measurements warrant.
 enum Tunables {
     static let maxDownloadsMemory: Int = 20 * 1024 * 1024   // 20 MiB
     static let maxConcurrentUploads: Int = 3
     static let chunkSize: Int = 10 * 1024 * 1024            // 10 MiB
-    // R1: matches Rust reference (BUFFER_CHUNKS_COUNT=2). Caps producer→
-    // uploader path at 2 × 10 MiB = 20 MiB instead of 4 × 10 MiB = 40 MiB.
-    // Predicted: -20 MB peakRSS, no wall-clock change.
     static let bufferChunksCount: Int = 2                   // ChunkProducer in-flight ceiling
 }
 
@@ -58,9 +51,6 @@ actor ByteSemaphore {
     }
 
     func acquire(_ amount: Int) async {
-        // Cap the request at full capacity — a single file may be larger than
-        // the budget; we still want the download to make progress (it'll
-        // block other downloads while it owns the whole budget).
         let needed = min(amount, capacity)
         if available >= needed {
             available -= needed
@@ -75,9 +65,6 @@ actor ByteSemaphore {
     func release(_ amount: Int) {
         let toRelease = min(amount, capacity)
         available += toRelease
-        // Wake the front waiter if its request now fits. We don't reorder,
-        // so a huge waiter won't starve smaller ones — that matches the
-        // Rust tokio Semaphore semantics for `acquire_many_owned`.
         while let head = waiters.first, available >= head.needed {
             waiters.removeFirst()
             head.cont.resume()
@@ -87,19 +74,27 @@ actor ByteSemaphore {
 
 // ----- Listing -----
 
-func listFiles(s3: S3, bucket: String, filesPrefix: String, logger: Logger) async throws -> [FileInfo] {
+func listFiles(s3: S3Client, bucket: String, filesPrefix: String, logger: Logger) async throws -> [FileInfo] {
     let prefix = filesPrefix + "/"
-    let request = S3.ListObjectsV2Request(bucket: bucket, prefix: prefix)
     var files: [FileInfo] = []
-    for try await page in s3.listObjectsV2Paginator(request, logger: logger) {
-        for object in page.contents ?? [] {
+    var continuationToken: String? = nil
+    repeat {
+        let response = try await s3.listObjectsV2(
+            input: ListObjectsV2Input(
+                bucket: bucket,
+                continuationToken: continuationToken,
+                prefix: prefix
+            )
+        )
+        for object in response.contents ?? [] {
             guard let key = object.key, let size = object.size, !key.hasSuffix("/") else { continue }
             guard key.hasPrefix(prefix) else { continue }
             let name = String(key.dropFirst(prefix.count))
             if name.isEmpty { continue }
             files.append(FileInfo(name: name, key: key, size: Int(size)))
         }
-    }
+        continuationToken = response.nextContinuationToken
+    } while continuationToken != nil
     return files
 }
 
@@ -111,10 +106,13 @@ struct MultipartUpload: Sendable {
     let uploadId: String
 }
 
-func startMultipartUpload(s3: S3, bucket: String, key: String, logger: Logger) async throws -> MultipartUpload {
+func startMultipartUpload(s3: S3Client, bucket: String, key: String, logger: Logger) async throws -> MultipartUpload {
     let response = try await s3.createMultipartUpload(
-        S3.CreateMultipartUploadRequest(bucket: bucket, contentType: "application/zip", key: key),
-        logger: logger
+        input: CreateMultipartUploadInput(
+            bucket: bucket,
+            contentType: "application/zip",
+            key: key
+        )
     )
     guard let uploadId = response.uploadId else {
         throw ArchivingError.missingUploadId
@@ -122,61 +120,59 @@ func startMultipartUpload(s3: S3, bucket: String, key: String, logger: Logger) a
     return MultipartUpload(bucket: bucket, key: key, uploadId: uploadId)
 }
 
+// uploadPart takes Data because that is what aws-sdk-swift's
+// `ByteStream.data(_:)` requires. Bridging via `.stream(...)` was
+// investigated and rejected: FlexibleChecksumsRequestMiddleware collects
+// any provided Stream into Data anyway for checksum computation, so
+// there is no copy savings.
 func uploadPart(
-    s3: S3,
+    s3: S3Client,
     upload: MultipartUpload,
     partNumber: Int,
-    data: ByteBuffer,
+    data: Data,
     logger: Logger
-) async throws -> S3.CompletedPart {
-    // AWSHTTPBody(buffer:) is zero-copy — Soto wraps the ByteBuffer
-    // directly and AsyncHTTPClient streams it without re-copying.
-    // See PERF-PLAN.md H2 finding (verified by reading
-    // soto-core/Sources/SotoCore/HTTP/AWSHTTPBody.swift:40).
+) async throws -> S3ClientTypes.CompletedPart {
     let response = try await s3.uploadPart(
-        S3.UploadPartRequest(
-            body: AWSHTTPBody(buffer: data),
+        input: UploadPartInput(
+            body: ByteStream.data(data),
             bucket: upload.bucket,
-            contentLength: Int64(data.readableBytes),
+            contentLength: data.count,
             key: upload.key,
             partNumber: partNumber,
             uploadId: upload.uploadId
-        ),
-        logger: logger
+        )
     )
     guard let etag = response.eTag else {
         throw ArchivingError.missingETag(partNumber: partNumber)
     }
-    return S3.CompletedPart(eTag: etag, partNumber: partNumber)
+    return S3ClientTypes.CompletedPart(eTag: etag, partNumber: partNumber)
 }
 
 func completeMultipartUpload(
-    s3: S3,
+    s3: S3Client,
     upload: MultipartUpload,
-    parts: [S3.CompletedPart],
+    parts: [S3ClientTypes.CompletedPart],
     logger: Logger
 ) async throws {
     let sorted = parts.sorted { ($0.partNumber ?? 0) < ($1.partNumber ?? 0) }
     _ = try await s3.completeMultipartUpload(
-        S3.CompleteMultipartUploadRequest(
+        input: CompleteMultipartUploadInput(
             bucket: upload.bucket,
             key: upload.key,
-            multipartUpload: S3.CompletedMultipartUpload(parts: sorted),
+            multipartUpload: S3ClientTypes.CompletedMultipartUpload(parts: sorted),
             uploadId: upload.uploadId
-        ),
-        logger: logger
+        )
     )
 }
 
-func abortMultipartUpload(s3: S3, upload: MultipartUpload, logger: Logger) async {
+func abortMultipartUpload(s3: S3Client, upload: MultipartUpload, logger: Logger) async {
     do {
         _ = try await s3.abortMultipartUpload(
-            S3.AbortMultipartUploadRequest(
+            input: AbortMultipartUploadInput(
                 bucket: upload.bucket,
                 key: upload.key,
                 uploadId: upload.uploadId
-            ),
-            logger: logger
+            )
         )
     } catch {
         logger.error("abort multipart upload failed: \(error)")
@@ -189,12 +185,14 @@ enum ArchivingError: Error, CustomStringConvertible {
     case missingUploadId
     case missingETag(partNumber: Int)
     case downloadShortRead(key: String, expected: Int, got: Int)
+    case missingResponseBody(key: String)
 
     var description: String {
         switch self {
         case .missingUploadId: return "S3 createMultipartUpload returned no uploadId"
         case .missingETag(let n): return "uploadPart \(n) returned no ETag"
         case .downloadShortRead(let k, let e, let g): return "short read on \(k): expected \(e), got \(g)"
+        case .missingResponseBody(let k): return "getObject \(k) returned no body"
         }
     }
 }

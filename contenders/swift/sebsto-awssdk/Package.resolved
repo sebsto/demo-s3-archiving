@@ -1,5 +1,5 @@
 {
-  "originHash" : "38e6c1366290bd77fa4bfc2d1034bceba1c1a7cfa32b6d377adb2017088308da",
+  "originHash" : "af42438afa8bfb68865e4b9aff2c4d0606ce81734c57ac9f17cc6296f840d4b8",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -11,30 +11,30 @@
       }
     },
     {
-      "identity" : "jmespath.swift",
+      "identity" : "aws-crt-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jmespath/jmespath.swift.git",
+      "location" : "https://github.com/awslabs/aws-crt-swift",
       "state" : {
-        "revision" : "3877a5060e85ae33e3b9fe51ab581784f65ec80e",
-        "version" : "1.0.3"
+        "revision" : "6780acbc4aaa94ce256ce115c79babba7d9880c2",
+        "version" : "0.61.1"
       }
     },
     {
-      "identity" : "soto",
+      "identity" : "aws-sdk-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/soto-project/soto.git",
+      "location" : "https://github.com/awslabs/aws-sdk-swift.git",
       "state" : {
-        "revision" : "f732b562bb5e0202470157a6041aa754229e777e",
-        "version" : "7.14.0"
+        "revision" : "da733cb971277283e85090a8387ee38444e53da5",
+        "version" : "1.7.8"
       }
     },
     {
-      "identity" : "soto-core",
+      "identity" : "smithy-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/soto-project/soto-core.git",
+      "location" : "https://github.com/smithy-lang/smithy-swift",
       "state" : {
-        "revision" : "ae265c8819c0067a2b361408ad92fca0fd60d667",
-        "version" : "7.13.0"
+        "revision" : "e68da8decdd14077097d497194e717ee2058b501",
+        "version" : "0.213.0"
       }
     },
     {
@@ -44,6 +44,15 @@
       "state" : {
         "revision" : "87e50f483c54e6efd60e885f7f5aa946cee68023",
         "version" : "1.2.1"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "ca37474853a4b5f59a22c74bfdd449b1f6bc4cc2",
+        "version" : "1.8.1"
       }
     },
     {
@@ -155,15 +164,6 @@
       }
     },
     {
-      "identity" : "swift-metrics",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-metrics.git",
-      "state" : {
-        "revision" : "087e8074afa97040c3b870c8664fe5482fb87cc4",
-        "version" : "2.11.0"
-      }
-    },
-    {
       "identity" : "swift-nio",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
@@ -238,7 +238,7 @@
     {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-system",
+      "location" : "https://github.com/apple/swift-system.git",
       "state" : {
         "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
         "version" : "1.6.4"

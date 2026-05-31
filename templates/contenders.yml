@@ -120,12 +120,12 @@ Resources:
   # copy-paste template for new contenders. Keep it as the last block in
   # this section so newcomers always see a valid registered Lambda.
 
-  # Swift / sebsto-soto  (3-stage download/zip/upload pipeline, Soto + swift-aws-lambda-runtime)
-  SwiftSebstoSotoFunction:
+  # Swift / sebsto-awssdk  (3-stage download/zip/upload pipeline, aws-sdk-swift + swift-aws-lambda-runtime)
+  SwiftSebstoAWSSDKFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-swift-sebsto-soto
-      CodeUri: ../contenders/swift/sebsto-soto
+      FunctionName: !Sub ${ProjectName}-swift-sebsto-awssdk
+      CodeUri: ../contenders/swift/sebsto-awssdk
       Runtime: provided.al2023
       MemorySize: 512
       Timeout: 600
@@ -133,10 +133,10 @@ Resources:
       Architectures:
         - arm64
       Role: !GetAtt LambdaContenderRole.Arn
-  SwiftSebstoSotoFunctionLogGroup:
+  SwiftSebstoAWSSDKFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${SwiftSebstoSotoFunction}
+      LogGroupName: !Sub /aws/lambda/${SwiftSebstoAWSSDKFunction}
       RetentionInDays: 90
 
   # Rust / jeremie-rodon  (reference implementation)
@@ -183,6 +183,6 @@ Outputs:
           # >>> INSERT YOUR CONTENDER ARN HERE <<<
           # Append one line per contender, mirroring the resource block you added above:
           #   - !GetAtt <Lang><DevId>Function.Arn
-          - !GetAtt SwiftSebstoSotoFunction.Arn
+          - !GetAtt SwiftSebstoAWSSDKFunction.Arn
           - !GetAtt RustJeremieRodonFunction.Arn
           # ----- END CONTENDER ARN LIST -----
