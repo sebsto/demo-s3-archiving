@@ -461,6 +461,68 @@ single-run variance band. The honest summary: the changes that
 improved peakRSS (C1, C2.5) are real wins; R1 is cosmetic; everything
 else is noise.
 
+## Run 17 — `swift-sebsto-awssdk` (aws-sdk-swift, optimized port)
+
+New branch `contender/swift-sebsto-awssdk`. Fresh port of the
+optimized sebsto-soto architecture (3-stage download/zip/upload
+pipeline, byte-budget semaphore, ChunkProducer actor, pre-allocated
+download buffer, single-pass CRC, bufferChunksCount=2) using
+aws-sdk-swift 1.x on aws-crt-swift instead of Soto on AsyncHTTPClient.
+
+Stack: same `demo-s3-archiv-perf-{ci,root}`. CI repointed at the new
+branch. Build: commit `4f9574d`. STATS=1.
+
+| Run | Type | Swift (s) | Rust (s) | Status |
+|---|---|---|---|---|
+| 17.cold-1 | cold | **TIMEOUT @ 600s** | 211.1 | crash: Sandbox.Timedout |
+
+### Mid-run progress observed in CloudWatch logs
+
+```
+zip:  200/3000  entries @  53 s  →  3.77 files/s
+zip: 1000/3000  entries @ 262 s  →  3.81 files/s
+zip: 2200/3000  entries @ 581 s  →  3.79 files/s
+                                  (timed out before 3000)
+```
+
+Linear: 3000 entries projected at ~795 s. Same shape as Run 9
+(March 2025, original AWS SDK port) which also reached ~2200/3000 by
+600 s timeout. **The optimizations didn't move the AWS SDK port at
+all.**
+
+### Per-file throughput comparison
+
+| Port | Files/s | Per-file ms |
+|---|---|---|
+| sebsto-soto (R1, optimized) | 8.26 | 121 ms |
+| sebsto-awssdk (this run) | 3.79 | 264 ms |
+| **Ratio (slower)** | **2.18×** | — |
+
+aws-sdk-swift is **~2.2× slower per file** than Soto on the same
+optimized architecture. The gap is at the HTTP layer (CRT vs
+AsyncHTTPClient/NIO) — same algorithm, same hardware, same network.
+
+### Why optimizations don't help here
+
+Each S3 GET still has to wait on the body to arrive. The optimizations
+that helped Soto (ByteBuffer end-to-end, pre-sized destination)
+either don't apply (no ByteBuffer body init in aws-sdk-swift) or
+apply but are dwarfed by the underlying CRT overhead. Run 17 spends
+~264 ms per file with downloadInFlight ≈ 4 — meaning each per-task
+download is taking far longer than Soto's ~376 ms / 1.96 in-flight =
+192 ms.
+
+### Verdict — Soto remains the shippable Swift contender
+
+The optimization work on sebsto-soto stands. **aws-sdk-swift on
+aws-crt-swift is structurally ~2× slower for this workload.** The
+architecture is faithful to Soto, the API forces no extra copies that
+Soto avoided, and the C2.5/R1 patterns are applied identically. The
+remaining gap is in the SDK + transport, not the application code.
+
+Best Swift run remains: **R1 cold-2 = 360.4 s, 1.72× Rust, $0.002403**
+on the sebsto-soto branch.
+
 ## Run-by-run history
 
 ### Rust reference (`rust-jeremie-rodon`)
