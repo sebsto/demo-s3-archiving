@@ -139,6 +139,25 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${SwiftSebstoSotoFunction}
       RetentionInDays: 90
 
+  # Swift / sebsto-awssdk-nio  (3-stage pipeline, official aws-sdk-swift + AsyncHTTPClient via SmithySwiftNIO)
+  SwiftSebstoAwssdkNioFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-swift-sebsto-awssdk-nio
+      CodeUri: ../contenders/swift/sebsto-awssdk-nio
+      Runtime: provided.al2023
+      MemorySize: 512
+      Timeout: 600
+      Handler: swift.handler
+      Architectures:
+        - arm64
+      Role: !GetAtt LambdaContenderRole.Arn
+  SwiftSebstoAwssdkNioFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SwiftSebstoAwssdkNioFunction}
+      RetentionInDays: 90
+
   # Rust / jeremie-rodon  (reference implementation)
   RustJeremieRodonFunction:
     Type: AWS::Serverless::Function
@@ -184,5 +203,6 @@ Outputs:
           # Append one line per contender, mirroring the resource block you added above:
           #   - !GetAtt <Lang><DevId>Function.Arn
           - !GetAtt SwiftSebstoSotoFunction.Arn
+          - !GetAtt SwiftSebstoAwssdkNioFunction.Arn
           - !GetAtt RustJeremieRodonFunction.Arn
           # ----- END CONTENDER ARN LIST -----
