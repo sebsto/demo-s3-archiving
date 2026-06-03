@@ -139,6 +139,26 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${SwiftSebstoSotoFunction}
       RetentionInDays: 90
 
+  # Swift / sebsto-tib  (sebsto-soto with @tib's optimization patch:
+  # downloader worker pool, incremental CRC32, streamed central directory)
+  SwiftSebstoTibFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-swift-sebsto-tib
+      CodeUri: ../contenders/swift/sebsto-tib
+      Runtime: provided.al2023
+      MemorySize: 512
+      Timeout: 600
+      Handler: swift.handler
+      Architectures:
+        - arm64
+      Role: !GetAtt LambdaContenderRole.Arn
+  SwiftSebstoTibFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SwiftSebstoTibFunction}
+      RetentionInDays: 90
+
   # Rust / jeremie-rodon  (reference implementation)
   RustJeremieRodonFunction:
     Type: AWS::Serverless::Function
@@ -184,5 +204,6 @@ Outputs:
           # Append one line per contender, mirroring the resource block you added above:
           #   - !GetAtt <Lang><DevId>Function.Arn
           - !GetAtt SwiftSebstoSotoFunction.Arn
+          - !GetAtt SwiftSebstoTibFunction.Arn
           - !GetAtt RustJeremieRodonFunction.Arn
           # ----- END CONTENDER ARN LIST -----
